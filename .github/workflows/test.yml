@@ -1,0 +1,35 @@
+# Shared test gate. Runs on every push/PR to the three branches, and is also
+# callable by the deploy workflows (workflow_call) so they never deploy code
+# that hasn't passed the same checks.
+name: test
+
+on:
+  push:
+    branches: [development, staging, main]
+  pull_request:
+    branches: [development, staging, main]
+  workflow_call: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      # Race tests are load-bearing for GoTP: the atomic verify-and-consume
+      # and the fraud counters are concurrency-sensitive.
+      - name: Race tests
+        run: go test -race ./...

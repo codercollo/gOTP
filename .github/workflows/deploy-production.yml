@@ -1,0 +1,69 @@
+# Deploy the `main` branch to production (:8080) on the VPS, behind a manual
+# approval gate.
+#
+# The approval comes from the GitHub Environment named "production":
+#   Settings -> Environments -> New environment "production"
+#   -> Required reviewers -> add yourself.
+# The deploy job will then pause and wait for approval before running.
+#
+# Required repo secrets:
+#   AT_REGISTRY, AT_REGISTRY_USERNAME, AT_REGISTRY_PASSWORD
+#   PROD_HOST, PROD_USER, PROD_SSH_KEY
+name: deploy-production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: meta
+        run: echo "image=${{ secrets.AT_REGISTRY }}/gotp:prod-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to the AT container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.AT_REGISTRY }}
+          username: ${{ secrets.AT_REGISTRY_USERNAME }}
+          password: ${{ secrets.AT_REGISTRY_PASSWORD }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./build/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.image }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    # This binds the job to the "production" environment. If that environment
+    # has required reviewers, the job waits for manual approval here.
+    environment: production
+    steps:
+      - name: Deploy to production over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            docker pull ${{ needs.build-and-push.outputs.image }}
+            docker rm -f gotp-production || true
+            docker run -d --name gotp-production \
+              --restart unless-stopped \
+              --env-file /opt/gotp-production/.env \
+              -p 8080:4000 \
+              ${{ needs.build-and-push.outputs.image }}
