@@ -87,7 +87,7 @@ func (l *ipLimiter) allow(ip string) bool {
 
 	now := time.Now()
 
-	l.mu.Unlock()
+	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	b, ok := l.clients[ip]
@@ -164,12 +164,14 @@ type metricsResponseWriter struct {
 	written bool
 }
 
+// WriteHeader records the response status before writing it to the client.
 func (mw *metricsResponseWriter) WriteHeader(code int) {
 	mw.status = code
 	mw.written = true
 	mw.ResponseWriter.WriteHeader(code)
 }
 
+// Write defaults the status to 200 when the handler has not explicitly set it.
 func (mw *metricsResponseWriter) Write(b []byte) (int, error) {
 	if !mw.written {
 		mw.status = http.StatusOK
@@ -178,12 +180,26 @@ func (mw *metricsResponseWriter) Write(b []byte) (int, error) {
 	return mw.ResponseWriter.Write(b)
 }
 
-// metrics middleware records total request, response, and status-code metrics using expvar.
+// isNoise identifies dashboard requests that should be excluded from API.
+// metrics and requestLogs.
+func isNoise(path string) bool {
+	return path == "/" || path == "/debug/vars"
+}
+
+// metrics records request, response, and per-status counts for API traffic
 func (app *application) metrics(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isNoise(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		metricTotalRequests.Add(1)
 
-		mw := &metricsResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		mw := &metricsResponseWriter{
+			ResponseWriter: w,
+			status:         http.StatusOK,
+		}
 		next.ServeHTTP(mw, r)
 
 		metricTotalResponses.Add(1)
@@ -195,6 +211,32 @@ func (app *application) metrics(next http.Handler) http.Handler {
 		} else {
 			expvar.NewInt(statusKey).Add(1)
 		}
+	})
+}
+
+// requestLog writes a structured log entry for each API request.
+func (app *application) requestLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isNoise(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		start := time.Now()
+
+		mw := &metricsResponseWriter{
+			ResponseWriter: w,
+			status:         http.StatusOK,
+		}
+		next.ServeHTTP(mw, r)
+
+		app.logger.PrintInfo("request", map[string]string{
+			"method":   r.Method,
+			"path":     r.URL.Path,
+			"status":   strconv.Itoa(mw.status),
+			"ip":       app.clientIP(r),
+			"duration": time.Since(start).String(),
+		})
 	})
 }
 

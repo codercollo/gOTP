@@ -21,8 +21,10 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPost, "/v1/otp/send", app.sendOTPHandler)
 	router.HandlerFunc(http.MethodPost, "/v1/otp/verify", app.verifyOTPHandler)
 
+	router.HandlerFunc(http.MethodGet, "/", app.dashboardHandler)
+
 	router.Handler(http.MethodGet, "/debug/vars", expvar.Handler())
 
-	return app.metrics(app.recoverPanic(app.secureHeaders(app.rateLimit(app.authenticate(router)))))
+	return app.metrics(app.recoverPanic(app.secureHeaders(app.rateLimit(app.authenticate(app.requestLog(router))))))
 
 }

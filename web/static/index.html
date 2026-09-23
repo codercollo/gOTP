@@ -1,200 +1,137 @@
 <!doctype html>
 <html lang="en" class="h-full">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>GoTP — Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-    <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/json-enc.js"></script>
-    <script>
-      tailwind.config = {
-        theme: { extend: { colors: { ink: "#0b1020", brand: "#4f46e5" } } },
-      };
-    </script>
-  </head>
-  <body class="h-full bg-slate-50 text-slate-800 antialiased">
-    <div class="mx-auto max-w-5xl px-4 py-8">
-      <!-- Header -->
-      <header class="flex flex-wrap items-center justify-between gap-3 mb-8">
-        <div>
-          <h1 class="text-2xl font-bold tracking-tight text-slate-900">GoTP</h1>
-          <p class="text-sm text-slate-500">
-            OTP that pays for itself — auditable fraud guard over SMS.
-          </p>
-        </div>
-        <span
-          class="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200"
-        >
-          <span class="h-2 w-2 rounded-full bg-emerald-500"></span> live
-        </span>
-      </header>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GoTP — Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/json-enc.js"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { ink: '#0b1020', brand: '#4f46e5' } } } };
+  </script>
+</head>
+<body class="h-full bg-slate-50 text-slate-800 antialiased">
+  <div class="mx-auto max-w-5xl px-4 py-8">
 
-      <!-- Metrics -->
-      <section
-        class="grid grid-cols-2 gap-4 sm:grid-cols-4 mb-8"
-        hx-get="/debug/vars"
-        hx-trigger="load, every 2s"
-        hx-swap="none"
-        hx-on::after-request="renderMetrics(event)"
-      >
-        <div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-          <p class="text-xs uppercase tracking-wide text-slate-500">Requests</p>
-          <p id="m-requests" class="mt-1 text-2xl font-semibold text-slate-900">
-            —
-          </p>
-        </div>
-        <div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-          <p class="text-xs uppercase tracking-wide text-slate-500">
-            Responses
-          </p>
-          <p
-            id="m-responses"
-            class="mt-1 text-2xl font-semibold text-slate-900"
-          >
-            —
-          </p>
-        </div>
-        <div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-          <p class="text-xs uppercase tracking-wide text-slate-500">
-            Blocked sends
-          </p>
-          <p id="m-blocked" class="mt-1 text-2xl font-semibold text-rose-600">
-            —
-          </p>
-        </div>
-        <div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-          <p class="text-xs uppercase tracking-wide text-slate-500">
-            Goroutines
-          </p>
-          <p
-            id="m-goroutines"
-            class="mt-1 text-2xl font-semibold text-slate-900"
-          >
-            —
-          </p>
-        </div>
-      </section>
+    <!-- Header -->
+    <header class="flex flex-wrap items-center justify-between gap-3 mb-8">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight text-slate-900">GoTP</h1>
+        <p class="text-sm text-slate-500">OTP that pays for itself — auditable fraud guard over SMS.</p>
+      </div>
+      <span id="live-badge" class="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
+        <span id="live-dot" class="h-2 w-2 rounded-full bg-slate-400"></span> <span id="live-text">connecting…</span>
+      </span>
+    </header>
 
-      <!-- Actions -->
-      <section class="grid gap-6 md:grid-cols-2">
-        <!-- Send -->
-        <div
-          id="send-card"
-          class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200"
-        >
-          <h2 class="text-sm font-semibold text-slate-900">Send a code</h2>
-          <p class="mt-1 text-xs text-slate-500">POST /v1/otp/send</p>
-          <form
-            class="mt-4 space-y-3"
-            hx-post="/v1/otp/send"
-            hx-ext="json-enc"
-            hx-target="#send-result"
-            hx-swap="innerHTML"
-            hx-on::after-request="flash('#send-card', event)"
-          >
-            <input
-              name="phone_number"
-              required
-              placeholder="+254712345678"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:ring-2 focus:ring-indigo-200 focus:outline-none"
-            />
-            <button
-              class="w-full rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition"
-            >
-              Send code
-            </button>
-          </form>
-          <pre
-            id="send-result"
-            class="mt-4 max-h-40 overflow-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-600"
-          ></pre>
-        </div>
+    <!-- Metrics -->
+    <section class="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-8"
+             hx-get="/debug/vars" hx-trigger="load, every 2s" hx-swap="none"
+             hx-on::after-request="renderMetrics(event)"
+             hx-on::send-error="setLive(false)"
+             hx-on::response-error="setLive(false)">
+      <div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Requests</p>
+        <p id="m-requests" class="mt-1 text-2xl font-semibold text-slate-900">—</p>
+      </div>
+      <div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Responses</p>
+        <p id="m-responses" class="mt-1 text-2xl font-semibold text-slate-900">—</p>
+      </div>
+      <div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Blocked sends</p>
+        <p id="m-blocked" class="mt-1 text-2xl font-semibold text-rose-600">—</p>
+      </div>
+    </section>
 
-        <!-- Verify -->
-        <div
-          id="verify-card"
-          class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200"
-        >
-          <h2 class="text-sm font-semibold text-slate-900">Verify a code</h2>
-          <p class="mt-1 text-xs text-slate-500">POST /v1/otp/verify</p>
-          <form
-            class="mt-4 space-y-3"
-            hx-post="/v1/otp/verify"
-            hx-ext="json-enc"
-            hx-target="#verify-result"
-            hx-swap="innerHTML"
-            hx-on::after-request="flash('#verify-card', event)"
-          >
-            <input
-              name="phone_number"
-              required
-              placeholder="+254712345678"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:ring-2 focus:ring-indigo-200 focus:outline-none"
-            />
-            <input
-              name="code"
-              required
-              placeholder="123456"
-              inputmode="numeric"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:ring-2 focus:ring-indigo-200 focus:outline-none"
-            />
-            <button
-              class="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 transition"
-            >
-              Verify code
-            </button>
-          </form>
-          <pre
-            id="verify-result"
-            class="mt-4 max-h-40 overflow-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-600"
-          ></pre>
-        </div>
-      </section>
+    <!-- Actions -->
+    <section class="grid gap-6 md:grid-cols-2">
+      <!-- Send -->
+      <div id="send-card" class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-sm font-semibold text-slate-900">Send a code</h2>
+        <p class="mt-1 text-xs text-slate-500">POST /v1/otp/send</p>
+        <form class="mt-4 space-y-3"
+              hx-post="/v1/otp/send" hx-ext="json-enc"
+              hx-target="#send-result" hx-swap="innerHTML"
+              hx-on::after-request="flash('#send-card', event)">
+          <input name="phone_number" required placeholder="+254712345678"
+                 class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:ring-2 focus:ring-indigo-200 focus:outline-none">
+          <button class="w-full rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition">
+            Send code
+          </button>
+        </form>
+        <pre id="send-result" class="mt-4 max-h-40 overflow-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-600"></pre>
+      </div>
 
-      <p class="mt-8 text-center text-xs text-slate-400">
-        Fraud Guard: Monitors velocity, verify ratios, fan-out spraying, and
-        SIM-swap signals with every block backed by an auditable reason
-      </p>
-    </div>
+      <!-- Verify -->
+      <div id="verify-card" class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-sm font-semibold text-slate-900">Verify a code</h2>
+        <p class="mt-1 text-xs text-slate-500">POST /v1/otp/verify</p>
+        <form class="mt-4 space-y-3"
+              hx-post="/v1/otp/verify" hx-ext="json-enc"
+              hx-target="#verify-result" hx-swap="innerHTML"
+              hx-on::after-request="flash('#verify-card', event)">
+          <input name="phone_number" required placeholder="+254712345678"
+                 class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:ring-2 focus:ring-indigo-200 focus:outline-none">
+          <input name="code" required placeholder="123456" inputmode="numeric"
+                 class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:ring-2 focus:ring-indigo-200 focus:outline-none">
+          <button class="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 transition">
+            Verify code
+          </button>
+        </form>
+        <pre id="verify-result" class="mt-4 max-h-40 overflow-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-600"></pre>
+      </div>
+    </section>
 
-    <script>
-      // Render the expvar payload into the stat tiles.
-      function renderMetrics(evt) {
-        try {
-          const v = JSON.parse(evt.detail.xhr.responseText);
-          setText("m-requests", v.total_requests_received);
-          setText("m-responses", v.total_responses_sent);
-          setText("m-blocked", v.blocked_sends_total);
-          // memstats.NumGoroutine isn't in expvar by default; show cmdline len fallback.
-          if (v.memstats && typeof v.memstats.NumGC !== "undefined") {
-            setText("m-goroutines", v.memstats.NumGC + " GC");
-          }
-        } catch (e) {
-          /* ignore partial payloads */
-        }
+    <p class="mt-8 text-center text-xs text-slate-400">
+      Fraud guard: velocity · verify-ratio · fan-out (spray) · SIM-swap — every block an auditable number.
+    </p>
+  </div>
+
+  <script>
+    // Toggle the live/offline badge.
+    function setLive(ok) {
+      const badge = document.getElementById('live-badge');
+      const dot = document.getElementById('live-dot');
+      const text = document.getElementById('live-text');
+      if (!badge) return;
+      if (ok) {
+        badge.className = 'inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200';
+        dot.className = 'h-2 w-2 rounded-full bg-emerald-500';
+        text.textContent = 'live';
+      } else {
+        badge.className = 'inline-flex items-center gap-2 rounded-full bg-rose-50 px-3 py-1 text-xs font-medium text-rose-600 ring-1 ring-rose-200';
+        dot.className = 'h-2 w-2 rounded-full bg-rose-500';
+        text.textContent = 'offline';
       }
-      function setText(id, val) {
-        if (val === undefined || val === null) return;
-        const el = document.getElementById(id);
-        if (el) el.textContent = val;
-      }
-      // Brief highlight on a card after an action; also 4xx shows a red ring.
-      function flash(sel, evt) {
-        const card = document.querySelector(sel);
-        if (!card) return;
-        const ok = evt.detail.successful && evt.detail.xhr.status < 400;
-        card.classList.add("ring-2", ok ? "ring-emerald-300" : "ring-rose-300");
-        setTimeout(
-          () =>
-            card.classList.remove(
-              "ring-2",
-              "ring-emerald-300",
-              "ring-rose-300",
-            ),
-          900,
-        );
-      }
-    </script>
-  </body>
+    }
+
+    // Render the expvar payload into the stat tiles.
+    function renderMetrics(evt) {
+      const ok = evt.detail && evt.detail.successful && evt.detail.xhr.status >= 200 && evt.detail.xhr.status < 400;
+      setLive(ok);
+      if (!ok) return;
+      try {
+        const v = JSON.parse(evt.detail.xhr.responseText);
+        setText('m-requests', v.total_requests_received);
+        setText('m-responses', v.total_responses_sent);
+        setText('m-blocked', v.blocked_sends_total);
+      } catch (e) { setLive(false); }
+    }
+    function setText(id, val) {
+      if (val === undefined || val === null) return;
+      const el = document.getElementById(id);
+      if (el) el.textContent = val;
+    }
+    // Brief highlight on a card after an action; also 4xx shows a red ring.
+    function flash(sel, evt) {
+      const card = document.querySelector(sel);
+      if (!card) return;
+      const ok = evt.detail.successful && evt.detail.xhr.status < 400;
+      card.classList.add('ring-2', ok ? 'ring-emerald-300' : 'ring-rose-300');
+      setTimeout(() => card.classList.remove('ring-2', 'ring-emerald-300', 'ring-rose-300'), 900);
+    }
+  </script>
+</body>
 </html>
