@@ -1,4 +1,5 @@
-// Package main provides JSON encoding/decoding utilities and async task management helpers.
+// Package main provides the HTTP application and helper functions used to
+// handle JSON requests and responses, as well as background tasks.
 package main
 
 import (
@@ -10,12 +11,12 @@ import (
 	"strings"
 )
 
-// envelope wraps response payloads in a top-level JSON object.
+// envelope represents the standard top-level JSON response object.
 type envelope map[string]any
 
-// writeJSON serializes data to indented JSON and writes it with HTTP headers and status code.
+// writeJSON serializes data as formatted JSON and writes it to the HTTP
+// response with the specified status code and additional HTTP headers.
 func (app *application) writeJSON(w http.ResponseWriter, status int, data envelope, headers http.Header) error {
-	// Marshal envelope payload
 	js, err := json.MarshalIndent(data, "", "\t")
 	if err != nil {
 		return err
@@ -23,30 +24,28 @@ func (app *application) writeJSON(w http.ResponseWriter, status int, data envelo
 
 	js = append(js, '\n')
 
-	// Set custom and default HTTP headers
 	for key, value := range headers {
 		w.Header()[key] = value
 	}
+
 	w.Header().Set("Content-Type", "application/json")
-
-	// Write status and response body
 	w.WriteHeader(status)
-	w.Write(js)
 
-	return nil
+	// Write the serialized JSON response body.
+	_, err = w.Write(js)
+	return err
 }
 
-// readJSON decodes request JSON into dst, enforcing a 1 MB max body limit and strict parsing rules.
+// readJSON decodes a single JSON value from the HTTP request body into dst.
 func (app *application) readJSON(w http.ResponseWriter, r *http.Request, dst any) error {
-	// Restrict payload size to 1MB
-	maxBytes := 1_048_576
-	r.Body = http.MaxBytesReader(w, r.Body, int64(maxBytes))
+	// Limit request bodies to 1 MB
+	const maxBytes = 1_048_576
 
-	// Configure strict decoder
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 
-	// Decode JSON and map error types to user-friendly messages
 	err := dec.Decode(dst)
 	if err != nil {
 		var syntaxError *json.SyntaxError
@@ -54,48 +53,73 @@ func (app *application) readJSON(w http.ResponseWriter, r *http.Request, dst any
 		var invalidUnmarshalError *json.InvalidUnmarshalError
 		var maxBytesError *http.MaxBytesError
 
+		// Convert low-level JSON errors into clearer application-level errors.
 		switch {
 		case errors.As(err, &syntaxError):
-			return fmt.Errorf("body contains badly-formed JSON (at character %d)", syntaxError.Offset)
+			return fmt.Errorf(
+				"body contains badly-formed JSON (at character %d)",
+				syntaxError.Offset,
+			)
+
 		case errors.Is(err, io.ErrUnexpectedEOF):
 			return errors.New("body contains badly-formed JSON")
+
 		case errors.As(err, &unmarshalTypeError):
 			if unmarshalTypeError.Field != "" {
-				return fmt.Errorf("body contains incorrent JSON type for field %q", unmarshalTypeError.Field)
+				return fmt.Errorf(
+					"body contains incorrect JSON type for field %q",
+					unmarshalTypeError.Field,
+				)
 			}
-			return fmt.Errorf("body contains incorrect JSON type (at character %d)", unmarshalTypeError.Offset)
+
+			return fmt.Errorf(
+				"body contains incorrect JSON type (at character %d)",
+				unmarshalTypeError.Offset,
+			)
+
 		case errors.Is(err, io.EOF):
 			return errors.New("body must not be empty")
-		case strings.HasPrefix(err.Error(), "json: unknown field"):
-			fieldName := strings.TrimPrefix(err.Error(), "json: unknown field")
-			return fmt.Errorf("body conrtains unknown key %s", &fieldName)
+
+		case strings.HasPrefix(err.Error(), "json: unknown field "):
+			fieldName := strings.TrimPrefix(
+				err.Error(),
+				"json: unknown field ",
+			)
+
+			return fmt.Errorf("body contains unknown key %s", fieldName)
+
 		case errors.As(err, &maxBytesError):
-			return fmt.Errorf("body must be larger than %d bytes", maxBytes)
+			return fmt.Errorf(
+				"body must not be larger than %d bytes",
+				maxBytesError.Limit,
+			)
+
 		case errors.As(err, &invalidUnmarshalError):
 			panic(err)
+
 		default:
 			return err
-
 		}
 	}
 
-	// Verify no trailing JSON objects exist
 	err = dec.Decode(&struct{}{})
 	if !errors.Is(err, io.EOF) {
 		return errors.New("body must only contain a single JSON value")
 	}
 
 	return nil
-
 }
 
-// background executes fn in a panic-recovered gorutine tracked for graceful shutdown
+// background runs fn in a separate goroutine and tracks it using the
+// application's WaitGroup.
 func (app *application) background(fn func()) {
 	app.wg.Add(1)
+
 	go func() {
+		// Mark the background task as finished when the goroutine exits.
 		defer app.wg.Done()
 
-		// Recover from panic
+		// Recover from panics
 		defer func() {
 			if err := recover(); err != nil {
 				app.logger.PrintError(fmt.Errorf("%v", err), nil)

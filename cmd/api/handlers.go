@@ -2,7 +2,9 @@
 package main
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/codercollo/gOTP/internal/data"
 	"github.com/codercollo/gOTP/internal/otp"
@@ -30,6 +32,29 @@ func (app *application) sendOTPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Evaluate velocity and conversion ratio limits to block fraud attempts early.
+	decision := app.guard.CheckSend(input.PhoneNumber, app.clientIP(r), time.Now())
+	if !decision.Allowed {
+		metricBlockedSends.Add(1)
+		app.logger.PrintInfo("send blocked", map[string]string{
+			"phone":  input.PhoneNumber,
+			"reason": decision.Reason,
+		})
+		app.errorResponse(w, r, http.StatusTooManyRequests, "request blocked: "+decision.Reason)
+		return
+	}
+
+	// Verify SIM-swap risk to prevent delivery to compromised SIM cards.
+	if swapped, err := app.checkSimSwap(input.PhoneNumber); err == nil && swapped {
+		metricBlockedSends.Add(1)
+		app.logger.PrintInfo("send blocked", map[string]string{
+			"phone":  input.PhoneNumber,
+			"reason": "recent_sim_swap",
+		})
+		app.errorResponse(w, r, http.StatusForbidden, "request blocked: recent SIM swap")
+		return
+	}
+
 	// Generate numeric OTP code.
 	code, err := otp.GenerateNumeric(app.config.otp.length)
 	if err != nil {
@@ -40,16 +65,21 @@ func (app *application) sendOTPHandler(w http.ResponseWriter, r *http.Request) {
 	// Save hashed	OTP to data store.
 	app.models.OTP.Insert(input.PhoneNumber, otp.Hash(code), app.config.otp.ttl, app.config.otp.maxAttempts)
 
-	// Dispatch SMS in background worker.
+	// Dispatch SMS in background worker asynchrounously.
 	app.background(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		msg := "Your verification code is " + code
+		if err := app.sms.Send(ctx, input.PhoneNumber, msg); err != nil {
+			app.logger.PrintError(err, map[string]string{
+				"phone": input.PhoneNumber,
+			})
+			return
+		}
 		if app.config.env == "development" {
 			app.logger.PrintInfo("otp generated", map[string]string{
 				"phone": input.PhoneNumber,
 				"code":  code,
-			})
-		} else {
-			app.logger.PrintInfo("otp dispatched", map[string]string{
-				"phone": input.PhoneNumber,
 			})
 		}
 	})
@@ -59,6 +89,13 @@ func (app *application) sendOTPHandler(w http.ResponseWriter, r *http.Request) {
 	if err := app.writeJSON(w, http.StatusAccepted, env, nil); err != nil {
 		app.serverErrorResponse(w, r, err)
 	}
+}
+
+// checkSimSwap performs a SIM-swap check against configured risk insights services with a fixed timeout.
+func (app *application) checkSimSwap(phone string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return app.swap.RecentSwap(ctx, phone)
 }
 
 // verifyOTPHandler validates a submitted OTP code and consumes it atomically.
@@ -86,6 +123,9 @@ func (app *application) verifyOTPHandler(w http.ResponseWriter, r *http.Request)
 
 	// Verify and consume code atomically.
 	result := app.models.OTP.VerifyAndConsume(input.PhoneNumber, input.Code)
+
+	// Update conversion ration metrics for the phone prefix to maintain active fraud accuracy.
+	app.guard.RecordVerify(input.PhoneNumber)
 
 	// Map verification results to HTTP response
 	switch result {
