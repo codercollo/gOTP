@@ -18,10 +18,14 @@ func (app *application) sendOTPHandler(w http.ResponseWriter, r *http.Request) {
 		PhoneNumber string `json:"phone_number"`
 	}
 
+	// Read request JSON
 	if err := app.readJSON(w, r, &input); err != nil {
 		app.badRequestResponse(w, r, err)
 		return
 	}
+
+	// Normalize phone number format
+	input.PhoneNumber = normalizePhone(input.PhoneNumber)
 
 	// Validate phone number format.
 	v := validator.New()
@@ -32,7 +36,7 @@ func (app *application) sendOTPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Evaluate velocity and conversion ratio limits to block fraud attempts early.
+	// Check rate limits & fraud controls
 	decision := app.guard.CheckSend(input.PhoneNumber, app.clientIP(r), time.Now())
 	if !decision.Allowed {
 		metricBlockedSends.Add(1)
@@ -44,7 +48,7 @@ func (app *application) sendOTPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify SIM-swap risk to prevent delivery to compromised SIM cards.
+	// Check SIM swap status
 	if swapped, err := app.checkSimSwap(input.PhoneNumber); err == nil && swapped {
 		metricBlockedSends.Add(1)
 		app.logger.PrintInfo("send blocked", map[string]string{
@@ -55,7 +59,7 @@ func (app *application) sendOTPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate numeric OTP code.
+	// Generate a hashed numeric OTP code.
 	code, err := otp.GenerateNumeric(app.config.otp.length)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
@@ -76,6 +80,11 @@ func (app *application) sendOTPHandler(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+
+		// SMS confirmation
+		app.logger.PrintInfo("sms sent", map[string]string{"phone": input.PhoneNumber})
+
+		// Log OPT in dev
 		if app.config.env == "development" {
 			app.logger.PrintInfo("otp generated", map[string]string{
 				"phone": input.PhoneNumber,
@@ -106,10 +115,14 @@ func (app *application) verifyOTPHandler(w http.ResponseWriter, r *http.Request)
 		Code        string `json:"code"`
 	}
 
+	// Read request JSON
 	if err := app.readJSON(w, r, &input); err != nil {
 		app.badRequestResponse(w, r, err)
 		return
 	}
+
+	// Normalize phone number format
+	input.PhoneNumber = normalizePhone(input.PhoneNumber)
 
 	// Validate required fields
 	v := validator.New()

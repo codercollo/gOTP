@@ -129,3 +129,18 @@ func (app *application) background(fn func()) {
 		fn()
 	}()
 }
+
+// normalizePhone removes formatting characters for E.164 validator
+func normalizePhone(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		// Strip seperator and whitespace
+		case ' ', '_', '(', ')', '\t':
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}

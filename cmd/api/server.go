@@ -51,7 +51,7 @@ func (app *application) serve() error {
 		}
 
 		// Wait for active background workers to complete.
-		app.logger.PrintInfo("completing backgorund tasks", map[string]string{
+		app.logger.PrintInfo("completing background tasks", map[string]string{
 			"addr": srv.Addr,
 		})
 		app.wg.Wait()

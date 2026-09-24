@@ -1,0 +1,286 @@
+openapi: "3.1.0"
+
+info:
+  title: GoTP API
+  version: "1.0.0"
+  description: >
+    OTP-as-a-Service over SMS with a built-in fraud guard. Before any code is
+    sent, four auditable checks run — per-number/IP velocity, send-vs-verify
+    ratio per prefix, a fan-out (spray) detector, and an optional SIM-swap
+    check. Verification is hardened with hashed codes, expiry, attempt lockout,
+    and atomic check-and-consume.
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:4000
+    description: Local development
+  - url: https://{instance}.africastalking.marketplace.dev
+    description: Marketplace instance
+    variables:
+      instance:
+        default: your-app
+
+tags:
+  - name: OTP
+    description: Send and verify one-time passwords.
+  - name: System
+    description: Health and metrics.
+
+paths:
+  /v1/otp/send:
+    post:
+      tags: [OTP]
+      summary: Send a one-time password
+      description: >
+        Generates a code, runs it through the fraud guard and optional SIM-swap
+        check, stores it hashed, and dispatches it by SMS. A blocked request
+        never sends an SMS.
+      operationId: sendOTP
+      security:
+        - ApiKeyAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendRequest"
+            examples:
+              kenyan:
+                value: { phone_number: "+254712345678" }
+      responses:
+        "202":
+          description: Accepted — if the number is valid, a code has been sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+              example:
+                { message: "if the number is valid, a code has been sent" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Blocked — the destination number had a recent SIM swap.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example: { error: "request blocked: recent SIM swap" }
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          description: >
+            Blocked by the fraud guard (velocity / verify-ratio / fan-out) or the
+            per-IP rate limiter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                velocity:
+                  value: { error: "request blocked: velocity_phone" }
+                fanout:
+                  value: { error: "request blocked: fanout_spray" }
+                rate_limit:
+                  value: { error: "rate limit exceeded" }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /v1/otp/verify:
+    post:
+      tags: [OTP]
+      summary: Verify a one-time password
+      description: >
+        Atomically checks and consumes a submitted code. Responses are uniform
+        for the invalid/expired/no-code cases so no information leaks to an
+        attacker.
+      operationId: verifyOTP
+      security:
+        - ApiKeyAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyRequest"
+            examples:
+              example:
+                value: { phone_number: "+254712345678", code: "123456" }
+      responses:
+        "200":
+          description: Verified.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResult"
+              example: { status: "verified" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: Invalid or expired code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example: { error: "invalid or expired code" }
+        "429":
+          description: Too many attempts; request a new code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example: { error: "too many attempts; request a new code" }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /v1/healthcheck:
+    get:
+      tags: [System]
+      summary: Liveness, environment, and version
+      operationId: healthcheck
+      security:
+        - {}
+      responses:
+        "200":
+          description: The service is available.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+              example:
+                status: available
+                system_info: { environment: development, version: "1.0.0" }
+
+  /debug/vars:
+    get:
+      tags: [System]
+      summary: Runtime metrics (expvar)
+      description: >
+        expvar metrics including total_requests_received, total_responses_sent,
+        blocked_sends_total, and per-status response tallies.
+      operationId: metrics
+      security:
+        - {}
+      responses:
+        "200":
+          description: expvar JSON payload.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: >
+        Required only when the instance is configured with API keys. The key is
+        compared by SHA-256 hash; the plaintext is never stored.
+
+  schemas:
+    SendRequest:
+      type: object
+      required: [phone_number]
+      additionalProperties: false
+      properties:
+        phone_number:
+          type: string
+          description: Destination number in E.164 format. Spaces and dashes are stripped.
+          pattern: '^\+[1-9]\d{6,14}$'
+          examples: ["+254712345678"]
+
+    VerifyRequest:
+      type: object
+      required: [phone_number, code]
+      additionalProperties: false
+      properties:
+        phone_number:
+          type: string
+          pattern: '^\+[1-9]\d{6,14}$'
+          examples: ["+254712345678"]
+        code:
+          type: string
+          examples: ["123456"]
+
+    Message:
+      type: object
+      properties:
+        message:
+          type: string
+
+    VerifyResult:
+      type: object
+      properties:
+        status:
+          type: string
+          examples: ["verified"]
+
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+        system_info:
+          type: object
+          properties:
+            environment:
+              type: string
+            version:
+              type: string
+
+    Error:
+      type: object
+      properties:
+        error:
+          description: A message string, or a map of field errors for validation failures.
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties:
+                type: string
+
+  responses:
+    BadRequest:
+      description: Malformed JSON body.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example: { error: "body contains badly-formed JSON" }
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example: { error: "invalid API key" }
+    ValidationError:
+      description: Input failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              {
+                phone_number: "must be a valid E.164 number, e.g. +254712345678",
+              }
+    ServerError:
+      description: The server encountered a problem.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            {
+              error: "the server encountered a problem and could not process your request",
+            }

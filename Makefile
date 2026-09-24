@@ -1,20 +1,18 @@
 # GoTP — Makefile
 
+.DEFAULT_GOAL := help
 .PHONY: help run/api build/api audit test tidy
 
+## help: print this help message
 help:
 	@echo 'Usage:'
-	@echo '  make run/api      run the API server'
-	@echo '  make build/api    build a static binary into ./bin/api'
-	@echo '  make test         run tests'
-	@echo '  make audit        vet + race tests'
-	@echo '  make tidy         format and tidy modules'
+	@sed -n 's/^##//p' $(MAKEFILE_LIST) | column -t -s ':' | sed -e 's/^/  make /'
 
 ## run/api: run the API server
 run/api:
-	go run ./cmd/api
+	-go run ./cmd/api
 
-## build/api: build a static binary
+## build/api: build a static binary into ./bin/api
 build/api:
 	CGO_ENABLED=0 go build -ldflags='-s -w' -o ./bin/api ./cmd/api
 
@@ -31,3 +29,10 @@ audit:
 tidy:
 	go fmt ./...
 	go mod tidy
+
+# Catch-all: unknown target -> error + help
+%:
+	@echo "make: unknown command '$@'"
+	@echo
+	@$(MAKE) --no-print-directory help
+	@exit 1

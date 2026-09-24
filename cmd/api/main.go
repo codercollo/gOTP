@@ -38,7 +38,8 @@ type config struct {
 		sandbox  bool   // Africa's Talking sandbox endpoint
 	}
 	insights struct {
-		enabled bool // Enable SIM swap check before dispatch
+		enabled  bool   // Enable SIM swap check before dispatch
+		simulate string // demo numbers to treat as swapped
 	}
 	limiter struct {
 		rps     float64 // Allowed requests per second
@@ -74,6 +75,8 @@ type application struct {
 }
 
 func main() {
+
+	loadDotenv(".env")
 	var cfg config
 
 	// server flags
@@ -92,7 +95,8 @@ func main() {
 	flag.BoolVar(&cfg.sms.sandbox, "at-sandbox", envBool("AT_SANDBOX", true), "Use the AT sandbox host")
 
 	// SIM swap settings
-	flag.BoolVar(&cfg.insights.enabled, "sim-swap-check", envBool("SIM_SWAP_CHECK", false), "Enable the SIM-swap check before sending")
+	flag.BoolVar(&cfg.insights.enabled, "sim-swap-check", envBool("SIM_SWAP_CHECK", true), "Enable the SIM-swap check before sending")
+	flag.StringVar(&cfg.insights.simulate, "sim-swap-simulate", envStr("SIM_SWAP_SIMULATE", ""), "Comma-separated numbers to treat as SIM-swapped (demo)")
 
 	// IP rate limiter settings
 	flag.Float64Var(&cfg.limiter.rps, "limiter-rps", envFloat("LIMITER_RPS", 2), "Per-IP requests/sec")
@@ -138,9 +142,12 @@ func main() {
 	}
 
 	// Initialize SIM swap checker
-	if cfg.insights.enabled && cfg.sms.apiKey != "" && cfg.sms.username != "" {
+	switch {
+	case cfg.insights.simulate != "":
+		app.swap = insights.NewMock(strings.Split(cfg.insights.simulate, ","))
+	case cfg.insights.enabled && cfg.sms.apiKey != "" && cfg.sms.username != "":
 		app.swap = insights.New(cfg.sms.username, cfg.sms.apiKey, cfg.sms.sandbox)
-	} else {
+	default:
 		app.swap = insights.NoopChecker{}
 	}
 
